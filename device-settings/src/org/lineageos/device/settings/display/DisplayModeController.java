@@ -7,29 +7,25 @@
  * Business rules:
  * - PWM has priority over HBM
  * - Enabling PWM will disable HBM automatically
- * - HBM cannot be enabled while PWM is active (must disable PWM first)
- * - HBM locks refresh rate to 120Hz
+ * - HBM cannot be enabled while PWM is active
+ * - HBM locks refresh rate to 90Hz
  * - Refresh rate tile should be disabled while HBM is active
- * - All mode mutations are synchronized so tile spam cannot interleave HBM/PWM cmds
- * - PanelModeSettle: every enter path waits out SETTLE_MS since the last mode
- *   change (covers two-tap HBM-off tile then PWM-on, not only in-line teardown)
- * - Cross-tile UI sync via TileService.requestListeningState (not a broadcast):
- *   PWM change → HBM tile (HBM available only when PWM off)
- *   HBM change → RefreshRate tile (locked while HBM on); also when PWM tears HBM
- *   down, RR must unlock
  */
 package org.lineageos.device.settings.display;
 
-import android.content.ComponentName;
 import android.content.Context;
-import android.service.quicksettings.TileService;
+import android.content.Intent;
 import android.util.Log;
 
 import org.lineageos.device.settings.Constants;
-import org.lineageos.device.settings.refreshrate.RefreshRateTile;
 
 public class DisplayModeController {
     private static final String TAG = "DisplayModeController";
+
+    public static final String ACTION_DISPLAY_MODE_CHANGED =
+            "org.lineageos.device.settings.action.DISPLAY_MODE_CHANGED";
+    public static final String EXTRA_HBM_ENABLED = "hbm_enabled";
+    public static final String EXTRA_PWM_ENABLED = "pwm_enabled";
 
     private static DisplayModeController sInstance;
     private final Context mContext;
@@ -74,80 +70,64 @@ public class DisplayModeController {
     }
 
     /**
-     * Refresh rate changes blocked when HBM is active (locked to 120Hz)
+     * Refresh rate changes blocked when HBM is active (locked to 90Hz)
      */
     public boolean canChangeRefreshRate() {
-        return !mHbmController.isHbmEnabled();
+        return ! mHbmController.isHbmEnabled();
     }
 
-    // ===== State Mutations (serialized) =====
+    // ===== State Mutations =====
 
-    public synchronized boolean enableHbm() {
-        if (!canEnableHbm()) {
+    public boolean enableHbm() {
+        if (! canEnableHbm()) {
             if (Constants.DEBUG) Log.w(TAG, "Cannot enable HBM: PWM is active");
             return false;
         }
 
         boolean success = mHbmController.enableHbm();
         if (success) {
-            // RR greys out while HBM is on
-            requestTileListening(RefreshRateTile.class);
+            broadcastStateChange();
         }
         return success;
     }
 
-    public synchronized boolean disableHbm() {
+    public boolean disableHbm() {
         boolean success = mHbmController.disableHbm();
         if (success) {
-            // RR unlocks when HBM is off
-            requestTileListening(RefreshRateTile.class);
+            broadcastStateChange();
         }
         return success;
     }
 
-    public synchronized boolean enablePwm() {
-        // PwmController tears HBM down + settles, then enables PWM
+    public boolean enablePwm() {
+        // PWM has priority - PwmController.enablePwm() already disables HBM
         boolean success = mPwmController.enablePwm();
         if (success) {
-            // HBM becomes unavailable (PWM has priority); RR unlocks if HBM was forced off
-            requestTileListening(HbmTile.class);
-            requestTileListening(RefreshRateTile.class);
+            broadcastStateChange();
         }
         return success;
     }
 
-    public synchronized boolean disablePwm() {
-        // PwmController disables + settles so a following HBM on is safe
+    public boolean disablePwm() {
         boolean success = mPwmController.disablePwm();
         if (success) {
-            // HBM can be enabled again
-            requestTileListening(HbmTile.class);
+            broadcastStateChange();
         }
         return success;
     }
 
-    /**
-     * Ask SystemUI to put a QS tile into listening so onStartListening → updateTile
-     * runs immediately. Faster and more reliable than a package broadcast.
-     */
-    public void requestTileListening(Class<? extends TileService> tileClass) {
-        try {
-            TileService.requestListeningState(mContext,
-                    new ComponentName(mContext, tileClass));
-            if (Constants.DEBUG) {
-                Log.i(TAG, "requestListeningState: " + tileClass.getSimpleName());
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "requestListeningState failed for " + tileClass.getSimpleName(), e);
-        }
-    }
+    // ===== Broadcast =====
 
-    /**
-     * Refresh all display-mode tiles (screen-on HBM sync, settings preference path).
-     */
     public void broadcastStateChange() {
-        requestTileListening(HbmTile.class);
-        requestTileListening(PwmTile.class);
-        requestTileListening(RefreshRateTile.class);
+        Intent intent = new Intent(ACTION_DISPLAY_MODE_CHANGED);
+        intent.putExtra(EXTRA_HBM_ENABLED, mHbmController.isHbmEnabled());
+        intent.putExtra(EXTRA_PWM_ENABLED, mPwmController.isPwmEnabled());
+        intent.setPackage(mContext.getPackageName());
+        mContext.sendBroadcast(intent);
+
+        if (Constants.DEBUG) {
+            Log.i(TAG, "Broadcast: HBM=" + mHbmController.isHbmEnabled()
+                    + ", PWM=" + mPwmController.isPwmEnabled());
+        }
     }
 }

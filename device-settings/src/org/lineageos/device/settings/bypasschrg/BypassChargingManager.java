@@ -19,7 +19,6 @@ import android.content.IntentFilter;
 import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.UserHandle;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -83,7 +82,7 @@ public class BypassChargingManager extends Service {
         if (instance == null) {
             Intent serviceIntent = new Intent(context, BypassChargingManager.class);
             try {
-                context.startServiceAsUser(serviceIntent, UserHandle.SYSTEM);
+                context.startService(serviceIntent);
                 if (Constants.DEBUG) Log.i(TAG, "Service started");
             } catch (Exception e) {
                 Log.e(TAG, "Failed to start service", e);

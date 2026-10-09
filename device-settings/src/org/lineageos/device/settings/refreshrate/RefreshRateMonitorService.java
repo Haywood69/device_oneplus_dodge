@@ -34,13 +34,10 @@ public class RefreshRateMonitorService extends Service {
     private ForegroundAppDetector mForegroundDetector;
     private boolean mAppMonitoringActive = false;
 
-    // "auto" = full dynamic range: peak 120 so SF can pick 90/120 by content,
-    // min 1 so the render vote does not keep compositing at 60 fps while ADFR
-    // already dropped the DDIC to 1 Hz. A 60 Hz floor was welding idle SF to
-    // 60 fps and keeping the SoC warm on a static screen.
-    // Panel max is 120 on dodge (1440p and 1080p timings). Defining peak
-    // explicitly (instead of restoring the user's Android "Smooth display"
-    // baseline, which is often 60) is what keeps auto from welding the ceiling.
+    // "auto" = full dynamic range: SF may pick 60/90/120 by content while the
+    // kernel ADFR self-refresh drops the DDIC to 20/1 beneath. MIN must be 1
+    // (not 60) so DisplayModeDirector does not clamp the VRR/LTPO floor to 60Hz.
+    // Panel max is 120 on dodge (1440p and 1080p timings).
     private static final float AUTO_MIN_REFRESH_RATE = 1f;
     private static final float AUTO_PEAK_REFRESH_RATE = 120f;
 
@@ -86,7 +83,7 @@ public class RefreshRateMonitorService extends Service {
             // Start service
             Intent serviceIntent = new Intent(context, RefreshRateMonitorService.class);
             try {
-                context.startServiceAsUser(serviceIntent, UserHandle.SYSTEM);
+                context.startService(serviceIntent);
                 if (Constants.DEBUG) Log.i(TAG, "Service started");
             } catch (Exception e) {
                 Log.e(TAG, "Failed to start service", e);
@@ -187,8 +184,8 @@ public class RefreshRateMonitorService extends Service {
         int minFps = ltpo ? 0 : 120;
         FileUtils.writeLine(Constants.NODE_ADFR_MIN_FPS, String.valueOf(minFps));
 
-        // fps == 0 (auto): open SF to 1..120 so it can idle the compositor.
-        // fps > 0 (fixed): lock SF to that single mode (MIN == PEAK).
+        // fps == 0 (auto): open SF to 1..120 so LTPO can drop below the lowest
+        // discrete mode. fps > 0 (fixed): lock SF to that single mode (MIN == PEAK).
         final float minRate = (fps == 0) ? AUTO_MIN_REFRESH_RATE : (float) fps;
         final float peakRate = (fps == 0) ? AUTO_PEAK_REFRESH_RATE : (float) fps;
 

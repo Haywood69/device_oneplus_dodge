@@ -17,6 +17,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.IBinder;
+import android.os.UserHandle;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -25,12 +27,10 @@ import androidx.preference.PreferenceManager;
 
 import org.lineageos.device.settings.bypasschrg.BypassChargingController;
 import org.lineageos.device.settings.bypasschrg.BypassChargingManager;
-import org.lineageos.device.settings.display.AodBrightnessController;
 import org.lineageos.device.settings.display.DisplayModeController;
 import org.lineageos.device.settings.display.HbmController;
 import org.lineageos.device.settings.display.PwmController;
 import org.lineageos.device.settings.display.SunlightBoostController;
-import org.lineageos.device.settings.fastcharge.FastChargeController;
 import org.lineageos.device.settings.gamebar.GameBar;
 import org.lineageos.device.settings.gamebar.GameBarMonitorService;
 import org.lineageos.device.settings.refreshrate.RefreshRateController;
@@ -77,23 +77,11 @@ public class DeviceSettingsService extends Service {
 
     private void initializeSubsystems() {
         initializeBypassCharging();
-        initializeFastCharging();
         initializePwm();
         initializeTestTe();
         initializeSunlightBoost();
-        initializeAodBrightness();
         initializeGameBar();
         initializeRefreshRate();
-    }
-
-    private void initializeAodBrightness() {
-        if (Constants.DEBUG) Log.i(TAG, "Initializing AOD brightness");
-        try {
-            AodBrightnessController.getInstance(this).restoreAodBrightness();
-            if (Constants.DEBUG) Log.i(TAG, "AOD brightness initialized");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize AOD brightness", e);
-        }
     }
 
     private void initializeSunlightBoost() {
@@ -117,18 +105,6 @@ public class DeviceSettingsService extends Service {
             if (Constants.DEBUG) Log.i(TAG, "BypassCharging initialized");
         } catch (Exception e) {
             Log.e(TAG, "Failed to initialize BypassCharging", e);
-        }
-    }
-
-    private void initializeFastCharging() {
-        if (Constants.DEBUG) Log.i(TAG, "Initializing FastCharging");
-        try {
-            // USER_VOTER does not survive a reboot, so the persisted cap has to be
-            // written again here
-            FastChargeController.getInstance(this).restore();
-            if (Constants.DEBUG) Log.i(TAG, "FastCharging initialized");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize FastCharging", e);
         }
     }
 
@@ -186,6 +162,19 @@ public class DeviceSettingsService extends Service {
     private void initializeRefreshRate() {
         if (Constants.DEBUG) Log.i(TAG, "Initializing RefreshRate");
         try {
+            // Old default was min=60 with a higher peak ("60 ~ 120 Hz"). That
+            // pins SurfaceFlinger at 60Hz so the dev-options overlay never
+            // shows LTPO drops. Lift the stored floor to 1 Hz once.
+            float min = Settings.System.getFloatForUser(getContentResolver(),
+                    Settings.System.MIN_REFRESH_RATE, 60f, UserHandle.USER_CURRENT);
+            float peak = Settings.System.getFloatForUser(getContentResolver(),
+                    Settings.System.PEAK_REFRESH_RATE, 120f, UserHandle.USER_CURRENT);
+            if (min >= 59f && min <= 61f && peak > 61f) {
+                Settings.System.putFloatForUser(getContentResolver(),
+                        Settings.System.MIN_REFRESH_RATE, 1f, UserHandle.USER_CURRENT);
+                if (Constants.DEBUG) Log.i(TAG, "Migrated min refresh rate 60 -> 1 Hz");
+            }
+
             RefreshRateController.getInstance(this);
             RefreshRateMonitorService.notifyStateChanged(this);
             if (Constants.DEBUG) Log.i(TAG, "RefreshRate initialized");
@@ -214,6 +203,9 @@ public class DeviceSettingsService extends Service {
                     case Intent.ACTION_SCREEN_ON:
                         handleScreenOn();
                         break;
+                    case DisplayModeController.ACTION_DISPLAY_MODE_CHANGED:
+                        handleDisplayModeChanged();
+                        break;
                     case Intent.ACTION_POWER_CONNECTED:
                         handlePowerConnected();
                         break;
@@ -227,6 +219,7 @@ public class DeviceSettingsService extends Service {
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
+        filter.addAction(DisplayModeController.ACTION_DISPLAY_MODE_CHANGED);
         filter.addAction(Intent.ACTION_POWER_CONNECTED);
         filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
 
@@ -253,16 +246,17 @@ public class DeviceSettingsService extends Service {
     private void handleScreenOff() {
         if (Constants.DEBUG) Log.i(TAG, "Screen OFF");
 
-        // Re-assert before LP1 so lux_aod cannot win the race.
+        // Disable HBM (business rule #2)
         try {
-            AodBrightnessController.getInstance(this).restoreAodBrightness();
+            HbmController hbmController = HbmController.getInstance(this);
+            if (hbmController.isHbmEnabled()) {
+                hbmController.disableHbm();
+                DisplayModeController.getInstance(this).broadcastStateChange();
+                if (Constants.DEBUG) Log.i(TAG, "HBM disabled on screen off");
+            }
         } catch (Exception e) {
-            Log.e(TAG, "Failed to restore AOD brightness on screen off", e);
+            Log.e(TAG, "Failed to disable HBM on screen off", e);
         }
-
-        // HBM (hbm_max) off on sleep is enforced by the kernel now
-        // (oplus_display_set_power resets hbm_max on DPMS OFF/LP so the UI can't
-        // freeze with HBM latched). We only sync our displayed state on screen-on.
 
         // Stop GameBar
         try {
@@ -277,16 +271,6 @@ public class DeviceSettingsService extends Service {
 
     private void handleScreenOn() {
         if (Constants.DEBUG) Log.i(TAG, "Screen ON");
-
-        // Sync HBM state: the kernel forced hbm_max off while the panel slept, so
-        // reconcile our preference to the node and refresh the tile/switch, which
-        // would otherwise show a stale ON.
-        try {
-            HbmController.getInstance(this).syncState();
-            DisplayModeController.getInstance(this).broadcastStateChange();
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to sync HBM state on screen on", e);
-        }
 
         // The kernel ADFR status_reset() re-arms sa_min_fps=1 on every panel
         // enable/timing switch, which would silently re-enable LTPO after a
@@ -314,6 +298,21 @@ public class DeviceSettingsService extends Service {
         }
     }
 
+    // ===== Display Mode Handlers =====
+
+    private void handleDisplayModeChanged() {
+        if (Constants.DEBUG) Log.i(TAG, "Display mode changed");
+
+        // The kernel ADFR status_reset() re-arms sa_min_fps=1 on every timing
+        // switch too, which would silently re-enable LTPO when the user has it
+        // off and SF auto-switches modes (e.g. 120->60 for video). Re-apply.
+        try {
+            RefreshRateMonitorService.notifyStateChanged(this);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to re-apply refresh rate on mode change", e);
+        }
+    }
+
     // ===== Power Event Handlers =====
 
     private void handlePowerConnected() {
@@ -324,12 +323,6 @@ public class DeviceSettingsService extends Service {
             BypassChargingController.getInstance(this).handlePowerConnected();
         } catch (Exception e) {
             Log.e(TAG, "Failed to handle power connected", e);
-        }
-
-        try {
-            FastChargeController.getInstance(this).restore();
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to restore fast charging on connect", e);
         }
     }
 
@@ -343,14 +336,6 @@ public class DeviceSettingsService extends Service {
             BypassChargingController.getInstance(this).handlePowerDisconnected();
         } catch (Exception e) {
             Log.e(TAG, "Failed to handle power disconnected", e);
-        }
-
-        // USER_VOTER survives unplug, so clear the session boost and re-apply the
-        // persisted cap now for the next plug
-        try {
-            FastChargeController.getInstance(this).restore();
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to restore fast charging on disconnect", e);
         }
     }
 }

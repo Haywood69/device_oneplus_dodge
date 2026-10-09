@@ -59,13 +59,6 @@
     <string name="gaming_category_title">Gaming</string>
     <string name="gaming_category_summary">Extra settings for gamers</string>
 
-    <!-- Battery category -->
-    <string name="battery_category_title">Battery</string>
-    <string name="fast_charging_title">Fast charging</string>
-    <string name="fast_charging_summary">Allow SuperVOOC up to 100W</string>
-    <string name="night_charging_title">Night mode</string>
-    <string name="night_charging_summary">Limit charging current to 1.5A</string>
-
     <!-- Bypass chargings -->
     <string name="bypass_charging_category_title" translatable="false">@string/bypass_charging_title</string>
     <string name="bypass_charging_title">Bypass charging</string>
@@ -254,10 +247,6 @@
     <string name="hbm_btn_enable">Enable</string>
     <string name="hbm_warning_dont_show_again">Don\'t show this warning again</string>
 
-    <!-- AOD brightness (stock: 10 nits default, 50 nits optional high) -->
-    <string name="aod_high_brightness_title">High brightness AOD</string>
-    <string name="aod_high_brightness_summary">Use 50 nits for Always On Display instead of the default 10 nits</string>
-
     <!-- Refresh Rate Settings -->
     <string name="refresh_rate_title">Refresh rate</string>
     <string name="refresh_rate_app_title">Per-App Refresh Rate</string>
@@ -281,7 +270,17 @@
 
     <!-- HBM/PWM/RefreshRate tile messages -->
     <string name="hbm_unavailable_pwm_active">PWM is active</string>
-    <string name="refresh_rate_locked_hbm">Locked at 120Hz (HBM)</string>
+    <string name="refresh_rate_locked_hbm">Locked at 90Hz (HBM)</string>
+
+    <!-- Vibration & Haptics -->
+    <string name="vibration_category_title">Vibration &amp; Haptics</string>
+    <string name="haptic_profile_title">Haptic profile</string>
+    <string name="haptic_profile_summary">Select haptic feedback waveform profile</string>
+    <string name="haptic_profile_op13gentle">OnePlus 13 Gentle (Soft - Default)</string>
+    <string name="haptic_profile_op13crisp">OnePlus 13 Crisp (Stock)</string>
+    <string name="haptic_profile_yaap_gentle">YAAP Gentle</string>
+    <string name="haptic_profile_yaap_crisp">YAAP Crisp</string>
+    <string name="haptic_profile_richtap">RichTap Standard</string>
 
     <!-- Generic -->
     <string name="delete">Delete</string>

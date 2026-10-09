@@ -218,7 +218,7 @@ public class SunlightBoostController {
         }
 
         // enableHbm() refuses while PWM one-pulse is active
-        if (DisplayModeController.getInstance(mContext).enableHbm()) {
+        if (HbmController.getInstance(mContext).enableHbm()) {
             mAutoEngaged = true;
             mExitSince = 0;
             mPrefs.edit().putBoolean(KEY_AUTO_ENGAGED, true).apply();
@@ -227,7 +227,7 @@ public class SunlightBoostController {
     }
 
     private void disengage(String reason) {
-        DisplayModeController.getInstance(mContext).disableHbm();
+        HbmController.getInstance(mContext).disableHbm();
         mAutoEngaged = false;
         mExitSince = 0;
         mPrefs.edit().putBoolean(KEY_AUTO_ENGAGED, false).apply();

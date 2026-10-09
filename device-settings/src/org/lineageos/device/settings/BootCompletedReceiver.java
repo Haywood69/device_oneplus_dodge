@@ -19,7 +19,6 @@ package org.lineageos.device.settings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.os.UserHandle;
 import android.util.Log;
 
 public class BootCompletedReceiver extends BroadcastReceiver {
@@ -32,7 +31,7 @@ public class BootCompletedReceiver extends BroadcastReceiver {
 
             try {
                 Intent serviceIntent = new Intent(context, DeviceSettingsService.class);
-                context.startServiceAsUser(serviceIntent, UserHandle.SYSTEM);
+                context.startService(serviceIntent);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to start DeviceSettingsService", e);
             }
